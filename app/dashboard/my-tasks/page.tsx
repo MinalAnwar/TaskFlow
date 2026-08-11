@@ -13,7 +13,8 @@ export default async function MyTasksPage() {
     supabase.from('profiles').select('id, email, full_name, role'),
   ])
 
-  const isAdmin = profiles?.find(p => p.id === session!.user.id)?.role === 'admin'
+  const role = profiles?.find(p => p.id === session!.user.id)?.role
+  const isAdmin = role === 'admin' || role === 'superadmin'
 
   return (
     <KanbanBoard

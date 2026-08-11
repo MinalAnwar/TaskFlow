@@ -12,7 +12,8 @@ export default async function DashboardPage() {
     supabase.auth.getSession(),
   ])
 
-  const isAdmin = profiles?.find(p => p.id === session!.user.id)?.role === 'admin'
+  const role = profiles?.find(p => p.id === session!.user.id)?.role
+  const isAdmin = role === 'admin' || role === 'superadmin'
 
   return (
     <KanbanBoard

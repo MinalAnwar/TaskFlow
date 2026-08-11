@@ -63,6 +63,8 @@ create trigger on_auth_user_created
 -- (CREATE POLICY resolves function calls immediately, unlike plpgsql trigger bodies).
 -- security definer means it bypasses RLS, so it's safe to call from any policy without
 -- recursive-policy issues.
+-- Superadmin is treated as a superset of admin here, so the superadmin doesn't need a
+-- separate admin grant just to assign/delete/edit tasks.
 create or replace function is_admin()
 returns boolean
 language sql
@@ -71,12 +73,12 @@ stable
 set search_path = public, pg_temp
 as $$
   select exists (
-    select 1 from profiles where id = auth.uid() and role = 'admin'
+    select 1 from profiles where id = auth.uid() and role in ('admin', 'superadmin')
   );
 $$;
 
--- Scoped strictly to role management (promoting/demoting admins) — deliberately does
--- NOT get task admin powers (assign/delete/edit); see is_admin() above for that.
+-- Role management (promoting/demoting admins) — superadmin also gets task admin powers
+-- via is_admin() above, since role in ('admin','superadmin') satisfies that check too.
 create or replace function is_superadmin()
 returns boolean
 language sql
