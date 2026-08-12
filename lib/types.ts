@@ -22,3 +22,30 @@ export interface Profile {
   full_name: string | null
   role: Role
 }
+
+export interface TaskComment {
+  id: string
+  task_id: string
+  author_id: string | null
+  body: string
+  created_at: string
+}
+
+export interface CommentMention {
+  id: string
+  comment_id: string
+  mentioned_id: string
+  read_at: string | null
+  created_at: string
+}
+
+export type ActivityAction = 'created' | 'assigned' | 'unassigned' | 'status_changed' | 'priority_changed' | 'title_changed'
+
+export interface TaskActivity {
+  id: string
+  task_id: string
+  actor_id: string | null
+  action: ActivityAction
+  detail: Record<string, string | null>
+  created_at: string
+}

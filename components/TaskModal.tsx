@@ -2,6 +2,8 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { Task, Profile } from '@/lib/types'
+import TaskComments from './TaskComments'
+import TaskActivityLog from './TaskActivityLog'
 
 export default function TaskModal({
   task, profiles, currentUserId, defaultAssigneeId, isAdmin, onClose, onSave
@@ -58,13 +60,13 @@ export default function TaskModal({
       className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-xl w-full max-w-md">
+      <div className={`bg-white rounded-2xl border border-gray-200 shadow-xl w-full ${task ? 'max-w-lg' : 'max-w-md'}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold">{task ? 'Edit task' : 'New task'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
           {readOnly && (
             <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg">
               View only — this task isn't assigned to you.
@@ -139,6 +141,17 @@ export default function TaskModal({
             </p>
           )}
           {error && <p className="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+
+          {task && (
+            <>
+              <div className="border-t border-gray-100 pt-4">
+                <TaskActivityLog taskId={task.id} profiles={profiles} />
+              </div>
+              <div className="border-t border-gray-100 pt-4">
+                <TaskComments taskId={task.id} profiles={profiles} currentUserId={currentUserId} />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex gap-2 justify-end px-6 py-4 border-t border-gray-100">

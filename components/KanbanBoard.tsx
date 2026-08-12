@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { Task, Profile } from '@/lib/types'
 import TaskModal from './TaskModal'
@@ -31,6 +32,19 @@ export default function KanbanBoard({
   const [filterAssignee, setFilterAssignee] = useState('')
   const [filterPriority, setFilterPriority] = useState('')
   const supabase = createClient()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    const taskId = searchParams.get('task')
+    if (!taskId) return
+    const match = tasks.find(t => t.id === taskId)
+    if (match) {
+      setEditTask(match)
+      setShowModal(true)
+      router.replace(scope === 'mine' ? '/dashboard/my-tasks' : '/dashboard')
+    }
+  }, [searchParams, tasks, router, scope])
 
   const refresh = useCallback(async () => {
     let query = supabase.from('tasks').select('*').order('created_at', { ascending: false })

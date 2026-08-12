@@ -211,3 +211,144 @@ drop trigger if exists enforce_profile_role_lock_trigger on profiles;
 create trigger enforce_profile_role_lock_trigger
   before update on profiles
   for each row execute procedure enforce_profile_role_lock();
+
+-- 8. Comments, @mentions, and a per-task activity log
+create table if not exists task_comments (
+  id uuid default gen_random_uuid() primary key,
+  task_id uuid not null references tasks(id) on delete cascade,
+  author_id uuid references profiles(id) on delete set null,
+  body text not null,
+  created_at timestamptz default now()
+);
+
+-- One row per user tagged in a comment. read_at is what drives the sidebar's unread
+-- mention badge — null means unread.
+create table if not exists comment_mentions (
+  id uuid default gen_random_uuid() primary key,
+  comment_id uuid not null references task_comments(id) on delete cascade,
+  mentioned_id uuid not null references profiles(id) on delete cascade,
+  read_at timestamptz,
+  created_at timestamptz default now()
+);
+
+-- Backfills created_at if an earlier version of this table already exists.
+alter table comment_mentions add column if not exists created_at timestamptz default now();
+
+-- Populated only by the trigger below, never written directly by the app — that's what
+-- makes it a trustworthy record of who actually did what.
+create table if not exists task_activity (
+  id uuid default gen_random_uuid() primary key,
+  task_id uuid not null references tasks(id) on delete cascade,
+  actor_id uuid references profiles(id) on delete set null,
+  action text not null,
+  detail jsonb not null default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+alter table task_comments enable row level security;
+alter table comment_mentions enable row level security;
+alter table task_activity enable row level security;
+
+-- Comments are open to everyone, unlike task assignment — anyone can ask/tag anyone.
+drop policy if exists "Authenticated users can read comments" on task_comments;
+create policy "Authenticated users can read comments"
+  on task_comments for select using (auth.role() = 'authenticated');
+
+drop policy if exists "Authenticated users can post comments" on task_comments;
+create policy "Authenticated users can post comments"
+  on task_comments for insert
+  with check (auth.role() = 'authenticated' and author_id = auth.uid());
+
+-- No update policy — comments are immutable once posted, like a chat log. Author or an
+-- admin can delete (basic moderation).
+drop policy if exists "Author or admin can delete comments" on task_comments;
+create policy "Author or admin can delete comments"
+  on task_comments for delete using (author_id = auth.uid() or is_admin());
+
+drop policy if exists "Users can read their own mentions" on comment_mentions;
+create policy "Users can read their own mentions"
+  on comment_mentions for select using (mentioned_id = auth.uid());
+
+-- Restricted to the comment's own author — otherwise anyone could attach a mention to
+-- someone else's comment and spoof a fake "you were mentioned" notification.
+drop policy if exists "Authenticated users can create mentions" on comment_mentions;
+drop policy if exists "Comment author can create mentions" on comment_mentions;
+create policy "Comment author can create mentions"
+  on comment_mentions for insert
+  with check (
+    auth.role() = 'authenticated'
+    and exists (select 1 from task_comments c where c.id = comment_id and c.author_id = auth.uid())
+  );
+
+drop policy if exists "Users can mark their own mentions read" on comment_mentions;
+create policy "Users can mark their own mentions read"
+  on comment_mentions for update
+  using (mentioned_id = auth.uid()) with check (mentioned_id = auth.uid());
+
+drop policy if exists "Authenticated users can read task activity" on task_activity;
+create policy "Authenticated users can read task activity"
+  on task_activity for select using (auth.role() = 'authenticated');
+-- Deliberately no insert/update/delete policy on task_activity for any role — the only
+-- way rows get created is the security-definer trigger below, which bypasses RLS.
+
+create or replace function log_task_activity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if TG_OP = 'INSERT' then
+    insert into task_activity (task_id, actor_id, action, detail)
+    values (new.id, new.created_by, 'created', '{}'::jsonb);
+    return new;
+  end if;
+
+  if TG_OP = 'UPDATE' then
+    if new.assignee_id is distinct from old.assignee_id then
+      insert into task_activity (task_id, actor_id, action, detail)
+      values (
+        new.id, auth.uid(),
+        case when new.assignee_id is null then 'unassigned' else 'assigned' end,
+        jsonb_build_object('from_id', old.assignee_id, 'to_id', new.assignee_id)
+      );
+    end if;
+    if new.status is distinct from old.status then
+      insert into task_activity (task_id, actor_id, action, detail)
+      values (new.id, auth.uid(), 'status_changed', jsonb_build_object('from', old.status, 'to', new.status));
+    end if;
+    if new.priority is distinct from old.priority then
+      insert into task_activity (task_id, actor_id, action, detail)
+      values (new.id, auth.uid(), 'priority_changed', jsonb_build_object('from', old.priority, 'to', new.priority));
+    end if;
+    if new.title is distinct from old.title then
+      insert into task_activity (task_id, actor_id, action, detail)
+      values (new.id, auth.uid(), 'title_changed', jsonb_build_object('from', old.title, 'to', new.title));
+    end if;
+    return new;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists log_task_activity_trigger on tasks;
+create trigger log_task_activity_trigger
+  after insert or update on tasks
+  for each row execute procedure log_task_activity();
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'task_comments'
+  ) then
+    alter publication supabase_realtime add table task_comments;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'task_activity'
+  ) then
+    alter publication supabase_realtime add table task_activity;
+  end if;
+end $$;

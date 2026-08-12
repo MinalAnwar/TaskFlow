@@ -1,4 +1,5 @@
 'use client'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter, usePathname } from 'next/navigation'
 
@@ -24,10 +25,54 @@ const NAV_LINKS = [
   },
 ]
 
-export default function Sidebar({ userEmail, userName, isSuperAdmin }: { userEmail: string; userName: string; isSuperAdmin: boolean }) {
+type MentionItem = {
+  id: string
+  task_comments: { task_id: string; body: string; tasks: { id: string; title: string } }
+}
+
+export default function Sidebar({
+  userEmail, userName, currentUserId, isSuperAdmin, initialUnreadMentions
+}: {
+  userEmail: string; userName: string; currentUserId: string; isSuperAdmin: boolean; initialUnreadMentions: number
+}) {
   const supabase = createClient()
   const router = useRouter()
   const pathname = usePathname()
+  const [unreadCount, setUnreadCount] = useState(initialUnreadMentions)
+  const [showMentions, setShowMentions] = useState(false)
+  const [mentions, setMentions] = useState<MentionItem[]>([])
+
+  const refreshCount = useCallback(async () => {
+    const { count } = await supabase
+      .from('comment_mentions')
+      .select('id', { count: 'exact', head: true })
+      .eq('mentioned_id', currentUserId)
+      .is('read_at', null)
+    setUnreadCount(count || 0)
+  }, [supabase, currentUserId])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('sidebar-mentions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comment_mentions', filter: `mentioned_id=eq.${currentUserId}` }, refreshCount)
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, currentUserId, refreshCount])
+
+  async function toggleMentions() {
+    const next = !showMentions
+    setShowMentions(next)
+    if (next) {
+      const { data } = await supabase
+        .from('comment_mentions')
+        .select('id, task_comments!inner(task_id, body, tasks!inner(id, title))')
+        .eq('mentioned_id', currentUserId)
+        .is('read_at', null)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      setMentions((data as any) || [])
+    }
+  }
 
   async function signOut() {
     await supabase.auth.signOut()
@@ -45,8 +90,45 @@ export default function Sidebar({ userEmail, userName, isSuperAdmin }: { userEma
 
   return (
     <aside className="w-56 bg-white border-r border-gray-200 flex flex-col h-full">
-      <div className="px-4 py-5 border-b border-gray-100">
+      <div className="px-4 py-5 border-b border-gray-100 flex items-center justify-between">
         <span className="font-semibold text-gray-900 text-lg">TaskFlow</span>
+        <div className="relative">
+          <button
+            onClick={toggleMentions}
+            className="relative w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-50 text-gray-500"
+            title="Mentions"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {showMentions && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowMentions(false)} />
+              <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto">
+                <p className="px-3 py-2 text-xs font-medium text-gray-500 border-b border-gray-100">Mentions</p>
+                {mentions.length === 0 && <p className="px-3 py-3 text-xs text-gray-400">No unread mentions.</p>}
+                {mentions.map(m => (
+                  <a
+                    key={m.id}
+                    href={`/dashboard?task=${m.task_comments.tasks.id}`}
+                    onClick={() => setShowMentions(false)}
+                    className="block px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0"
+                  >
+                    <p className="text-sm font-medium text-gray-800 truncate">{m.task_comments.tasks.title}</p>
+                    <p className="text-xs text-gray-400 truncate">{m.task_comments.body}</p>
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
