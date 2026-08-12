@@ -39,6 +39,7 @@ export default function TaskComments({
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionedIds, setMentionedIds] = useState<Set<string>>(new Set())
   const [posting, setPosting] = useState(false)
+  const [error, setError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const supabase = createClient()
 
@@ -94,17 +95,24 @@ export default function TaskComments({
 
   async function post() {
     if (!body.trim()) return
-    setPosting(true)
-    const { data, error } = await supabase
+    setPosting(true); setError('')
+    const { data, error: err } = await supabase
       .from('task_comments')
       .insert({ task_id: taskId, author_id: currentUserId, body: body.trim() })
       .select()
       .single()
-    if (!error && data) {
-      const ids = Array.from(mentionedIds).filter(id => id !== currentUserId)
-      if (ids.length > 0) {
-        await supabase.from('comment_mentions').insert(ids.map(mentioned_id => ({ comment_id: data.id, mentioned_id })))
-      }
+    if (err || !data) {
+      // Keep the text in the box so a failed post isn't silently lost.
+      setError(err?.message || 'Could not post comment.')
+      setPosting(false)
+      return
+    }
+    const ids = Array.from(mentionedIds).filter(id => id !== currentUserId)
+    if (ids.length > 0) {
+      const { error: mErr } = await supabase
+        .from('comment_mentions')
+        .insert(ids.map(mentioned_id => ({ comment_id: data.id, mentioned_id })))
+      if (mErr) setError(`Comment posted, but mentions failed: ${mErr.message}`)
     }
     setBody('')
     setMentionedIds(new Set())
@@ -143,19 +151,24 @@ export default function TaskComments({
           rows={2}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
         />
+        {/* In normal flow, not absolutely positioned — the modal body is an
+            overflow-y-auto container, which would clip a floating dropdown. */}
         {showMentions && filteredProfiles.length > 0 && (
-          <div className="absolute z-10 bottom-full mb-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto w-56">
+          <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-sm max-h-40 overflow-y-auto">
+            <p className="px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">Tag someone</p>
             {filteredProfiles.map(p => (
               <button
                 key={p.id}
+                type="button"
                 onClick={() => pickMention(p)}
-                className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50"
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50"
               >
                 {p.full_name || p.email}
               </button>
             ))}
           </div>
         )}
+        {error && <p className="text-red-600 text-xs bg-red-50 px-3 py-2 rounded-lg mt-1.5">{error}</p>}
         <div className="flex justify-end mt-1.5">
           <button
             onClick={post}

@@ -111,7 +111,9 @@ export default function Sidebar({
           {showMentions && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowMentions(false)} />
-              <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto">
+              {/* Opens rightward into the main area: the sidebar is only 224px wide, so a
+                  288px popover anchored right-0 would run off the left edge of the screen. */}
+              <div className="absolute left-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto">
                 <p className="px-3 py-2 text-xs font-medium text-gray-500 border-b border-gray-100">Mentions</p>
                 {mentions.length === 0 && <p className="px-3 py-3 text-xs text-gray-400">No unread mentions.</p>}
                 {mentions.map(m => (
