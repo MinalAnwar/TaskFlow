@@ -59,10 +59,21 @@ export default function Sidebar({
     return () => { supabase.removeChannel(channel) }
   }, [supabase, currentUserId, refreshCount])
 
+  // Don't rely on realtime alone — re-check on navigation and when the tab regains
+  // focus, so a missed event can't leave a stale count stuck on screen.
+  useEffect(() => { refreshCount() }, [pathname, refreshCount])
+
+  useEffect(() => {
+    function onFocus() { refreshCount() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refreshCount])
+
   async function toggleMentions() {
     const next = !showMentions
     setShowMentions(next)
     if (next) {
+      refreshCount()
       const { data } = await supabase
         .from('comment_mentions')
         .select('id, task_comments!inner(task_id, body, tasks!inner(id, title))')

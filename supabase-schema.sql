@@ -351,4 +351,12 @@ begin
   ) then
     alter publication supabase_realtime add table task_activity;
   end if;
+  -- Without this the sidebar's unread-mention badge never updates live, so it keeps
+  -- showing a stale count after you've read the mentions.
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'comment_mentions'
+  ) then
+    alter publication supabase_realtime add table comment_mentions;
+  end if;
 end $$;

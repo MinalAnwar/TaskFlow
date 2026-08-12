@@ -53,19 +53,38 @@ export default function TaskActivityLog({ taskId, profiles }: { taskId: string; 
     return () => { supabase.removeChannel(channel) }
   }, [supabase, taskId, refresh])
 
-  if (activity.length === 0) return null
+  // activity is newest-first, so the first 'assigned' entry is the current assignment.
+  const lastAssigned = activity.find(a => a.action === 'assigned')
+  const assignedBy = lastAssigned
+    ? profiles.find(p => p.id === lastAssigned.actor_id)
+    : undefined
 
   return (
     <div>
       <h3 className="text-sm font-medium text-gray-700 mb-2">Activity</h3>
-      <ul className="space-y-1.5">
-        {activity.map(a => (
-          <li key={a.id} className="text-xs text-gray-500">
-            <span className="text-gray-400 font-mono mr-1.5">{new Date(a.created_at).toLocaleString()}</span>
-            {describe(a, profiles)}
-          </li>
-        ))}
-      </ul>
+
+      {lastAssigned && (
+        <p className="text-xs text-gray-600 bg-blue-50 px-3 py-2 rounded-lg mb-2">
+          Assigned by <span className="font-medium">{assignedBy?.full_name || assignedBy?.email || 'someone'}</span>
+          {' · '}{new Date(lastAssigned.created_at).toLocaleString()}
+        </p>
+      )}
+
+      {activity.length === 0 ? (
+        <p className="text-xs text-gray-400">
+          No history recorded for this task yet. Activity is tracked from the point logging
+          was enabled, so older changes don&apos;t appear here.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {activity.map(a => (
+            <li key={a.id} className="text-xs text-gray-500">
+              <span className="text-gray-400 font-mono mr-1.5">{new Date(a.created_at).toLocaleString()}</span>
+              {describe(a, profiles)}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
